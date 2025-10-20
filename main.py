@@ -12,6 +12,7 @@ FPS = 60 # Frames per seconde, how many times the screen updates every second
 # Back ground Setting
 BG_COLOR = (18, 18, 18) # Red, Green, Blue
 GRID_COLOR = (55, 55, 55)
+FONT_WHITE = (230, 230, 230)
 
 # Block Setting
 BLOCKS_COLOR = {
@@ -67,6 +68,9 @@ BLOCKS_SHAPES = {
     ],
 }
 
+# Timing Parameter
+FALL_DELAY = 10000 # milliseconds between automatic drops
+
 class Piece:
     def __init__(self, kind: str):
         self.kind = kind
@@ -114,6 +118,10 @@ def draw_piece(surface, piece):
                 pygame.Rect(x * CELL + 1, y * CELL + 1, CELL -2, CELL - 2),
             )
 
+def draw_hud(surface, score, font):
+    text = font.render(f"SCORE: {score}", True, FONT_WHITE)
+    surface.blit(text, (8,6))
+
 def inside(x, y):
     return 0 <= x < COLS and 0 <= y < ROWS
 
@@ -131,47 +139,115 @@ def lock_piece(board, piece):
         if 0 <= y < ROWS:
             board[y][x] = piece.color
 
+def clear_lines(board):
+    cleared = 0
+    y = ROWS - 1
+    while y >= 0:
+        if all(board[y][x] is not None for x in range(COLS)):
+            del board[y]
+            board.insert(0, [None for _ in range(COLS)])
+            cleared += 1
+        else:
+            y -= 1
+    return cleared
+
 def spawn_new_piece():
     kind = random.choice(list(BLOCKS_SHAPES.keys()))
     return Piece(kind)
 
+def try_move(board, piece, dx=0, dy=0):
+    nx, ny = piece.x + dx, piece.y + dy
+    if put_place(board, piece, piece.rot, nx, ny):
+        piece.x, piece.y = nx, ny
+        return True
+    return False
+
+def try_rotate(board, piece, dr = 1):
+    new_rot = (piece.rot + dr) % len(BLOCKS_SHAPES[piece.kind])
+    for ox in (0, -1, 1, -2, 2):
+        if put_place(board, piece, new_rot, piece.x + ox, piece.y):
+            piece.rot = new_rot
+            piece.x += ox
+            return True
+    return False
+
 def excute_game():
     pygame.init()
-    pygame.display.set_caption("TETRIS STEP1")
+    pygame.display.set_caption("TETRIS")
     screen = pygame.display.set_mode((WIDTH,HEIGHT))
     clock = pygame.time.Clock()
+    font = pygame.font.Font(None, 24)
 
     board = [[None for _ in range(COLS)] for _ in range(ROWS)]
 
     current = spawn_new_piece()
-    fall_delay = 500  # milliseconds between automatic drops
+    fall_delay = FALL_DELAY
     last_fall = pygame.time.get_ticks()
+    score = 0
 
     running = True
     while running:
-        '''
-        Init
-        '''
-        # When the user clicks the window's close (X) button,
-        # pygame generates a QUIT event and puts it into the event queue.
+    # --- Input ---
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                elif event.key == pygame.K_LEFT:
+                    try_move(board, current, dx=-1)
+                elif event.key == pygame.K_RIGHT:
+                    try_move(board, current, dx=1)
+                elif event.key == pygame.K_DOWN:
+                    if try_move(board, current, dy=1):
+                        last_fall = pygame.time.get_ticks()
+                elif event.key == pygame.K_UP:
+                    try_rotate(board, current, dr=1)
+                elif event.key == pygame.K_SPACE:  # hard drop
+                    while try_move(board, current, dy=1):
+                        pass
+                    lock_piece(board, current)
+                    cleared = clear_lines(board)
+                    if cleared:
+                        score += cleared * 100
+                    current = spawn_new_piece()
+                    # 스폰 불가면 리셋 (간단한 게임오버 처리)
+                    if not put_place(board, current, current.rot, current.x, current.y):
+                        board = [[None for _ in range(COLS)] for _ in range(ROWS)]
+                        score = 0
+                        current = spawn_new_piece()
+
+            # --- Gravity ---
+            now = pygame.time.get_ticks()
+            if now - last_fall >= fall_delay:
+                last_fall = now
+                locked = gravity_step(board, current)
+                if locked:
+                    cleared = clear_lines(board)
+                    if cleared:
+                        score += cleared * 100
+                    current = spawn_new_piece()
+                    if not put_place(board, current, current.rot, current.x, current.y):
+                        board = [[None for _ in range(COLS)] for _ in range(ROWS)]
+                        score = 0
+                        current = spawn_new_piece()
         '''
         Update
         '''
         now = pygame.time.get_ticks()
         if now - last_fall >= fall_delay:
             last_fall = now
-
-        if put_place(board, current, current.rot, current.x, current.y + 1):
-            current.y += 1
-        else:
-            lock_piece(board, current)
-            current = spawn_new_piece()
-            if not put_place(board, current, current.rot, current.x, current.y):
-                board = [[None for _ in range(COLS)] for _ in range(ROWS)]
+            if not try_move(board, current, dy=1):
+                lock_piece(board, current)
+                cleared = clear_lines(board)
+                if cleared > 0:
+                    score += cleared * 100
                 current = spawn_new_piece()
+                if not put_place(board, current, current.rot, current.x, current.y +1):
+                    board = [[None for _ in rage(COLS)] for _ in range(ROWS)]
+                    score = 0
+                    current = spawn_new_piece()
+
         '''
         Drawing
         '''
@@ -179,9 +255,9 @@ def excute_game():
         draw_board(screen, board)
         draw_piece(screen, current)
         draw_grid(screen)
+        draw_hud(screen, score, font)
 
         pygame.display.flip() # Screen Update
-
         '''
         Limit the game loop to run at most 'FPS' times per second 
         Prevents the game from running too fast
