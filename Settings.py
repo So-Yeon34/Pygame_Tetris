@@ -11,4 +11,4 @@ GRID_COLOR = (55, 55, 55)
 FONT_WHITE = (230, 230, 230)
 
 # Timing Parameter
-FALL_DELAY = 10000 # milliseconds between automatic drops
+FALL_DELAY = 300 # milliseconds between automatic drops
